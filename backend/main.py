@@ -1,25 +1,88 @@
 
+import os
+import json
+import urllib.request
+import urllib.error
+
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from database import obtener_conexion
 from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from sentence_transformers import SentenceTransformer
 
-modelo_semantico = None
+from database import obtener_conexion
 
+
+# ==========================================
+# GENERAR EMBEDDINGS CON CLOUDFLARE BGE-M3
+# ==========================================
+
+def obtener_embedding_cloudflare(texto):
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+
+    if not account_id or not api_token:
+        raise HTTPException(
+            status_code=500,
+            detail="No se encontraron las credenciales de Cloudflare."
+        )
+
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{account_id}/ai/run/@cf/baai/bge-m3"
+    )
+
+    datos = json.dumps({"text": [texto]}).encode("utf-8")
+
+    solicitud = urllib.request.Request(
+        url,
+        data=datos,
+        headers={
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(solicitud, timeout=60) as respuesta:
+            resultado = json.loads(respuesta.read().decode("utf-8"))
+
+        if not resultado.get("success"):
+            raise HTTPException(
+                status_code=502,
+                detail="Cloudflare no pudo generar el embedding."
+            )
+
+        embedding = resultado["result"]["data"][0]
+
+        if len(embedding) != 1024:
+            raise HTTPException(
+                status_code=502,
+                detail="El embedding generado no tiene 1024 dimensiones."
+            )
+
+        return embedding
+
+    except urllib.error.HTTPError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error de Cloudflare: HTTP {error.code}"
+        )
+    except urllib.error.URLError:
+        raise HTTPException(
+            status_code=502,
+            detail="No fue posible conectar con Cloudflare."
+        )
+
+
+# ==========================================
+# CONFIGURACIÓN DE FASTAPI
+# ==========================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global modelo_semantico
-
-    modelo_semantico = SentenceTransformer(
-        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    )
-
     yield
-
-    modelo_semantico = None
 
 
 app = FastAPI(
@@ -30,12 +93,20 @@ app = FastAPI(
 )
 
 
+# ==========================================
+# RUTA PRINCIPAL
+# ==========================================
+
 @app.get("/")
 def inicio():
     return {
         "mensaje": "¡Bienvenido al sistema de búsqueda de la Biblioteca ITSJR!"
     }
 
+
+# ==========================================
+# LISTAR LIBROS
+# ==========================================
 
 @app.get("/libros")
 def listar_libros():
@@ -64,18 +135,29 @@ def listar_libros():
                 for fila in resultados
             ]
 
-            return {"total": len(libros), "libros": libros}
+            return {
+                "total": len(libros),
+                "libros": libros
+            }
 
     finally:
         conexion.close()
 
+
+# ==========================================
+# BÚSQUEDA TRADICIONAL
+# ==========================================
 
 @app.get("/buscar")
 def buscar_libros(q: str):
     consulta = q.strip()
 
     if not consulta:
-        return {"consulta": q, "total": 0, "libros": []}
+        return {
+            "consulta": q,
+            "total": 0,
+            "libros": []
+        }
 
     conexion = obtener_conexion()
 
@@ -99,8 +181,12 @@ def buscar_libros(q: str):
                 ORDER BY id_libro
                 LIMIT 50;
             """, (
-                busqueda, busqueda, busqueda,
-                busqueda, busqueda, busqueda
+                busqueda,
+                busqueda,
+                busqueda,
+                busqueda,
+                busqueda,
+                busqueda
             ))
 
             resultados = cursor.fetchall()
@@ -132,13 +218,20 @@ def buscar_libros(q: str):
         conexion.close()
 
 
+# ==========================================
+# BÚSQUEDA SEMÁNTICA CON BGE-M3
+# ==========================================
+
 @app.get("/buscar-semantico")
 def buscar_semantico(q: str, limite: int = 10):
-
     consulta = q.strip()
 
     if not consulta:
-        return {"consulta": q, "total": 0, "libros": []}
+        return {
+            "consulta": q,
+            "total": 0,
+            "libros": []
+        }
 
     if limite < 1 or limite > 50:
         raise HTTPException(
@@ -146,20 +239,12 @@ def buscar_semantico(q: str, limite: int = 10):
             detail="El límite debe estar entre 1 y 50."
         )
 
-    if modelo_semantico is None:
-        raise HTTPException(
-            status_code=503,
-            detail="El modelo semántico todavía no está disponible."
-        )
+    # Generar embedding de la consulta con Cloudflare
+    vector_consulta = obtener_embedding_cloudflare(consulta)
 
-    vector_consulta = modelo_semantico.encode(
-        consulta,
-        normalize_embeddings=True
+    vector_texto = (
+        "[" + ",".join(str(float(valor)) for valor in vector_consulta) + "]"
     )
-
-    vector_texto = "[" + ",".join(
-        str(float(valor)) for valor in vector_consulta
-    ) + "]"
 
     conexion = obtener_conexion()
 
@@ -179,12 +264,16 @@ def buscar_semantico(q: str, limite: int = 10):
                     l.estanteria,
                     l.estante,
                     e.embedding <=> %s::vector AS distancia
-                FROM libros_embeddings e
+                FROM libros_embeddings_bge e
                 INNER JOIN libros l
                     ON l.id_libro = e.id_libro
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s;
-            """, (vector_texto, vector_texto, limite))
+            """, (
+                vector_texto,
+                vector_texto,
+                limite
+            ))
 
             resultados = cursor.fetchall()
 
@@ -215,6 +304,10 @@ def buscar_semantico(q: str, limite: int = 10):
     finally:
         conexion.close()
 
+
+# ==========================================
+# SERVIR INTERFAZ WEB
+# ==========================================
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
