@@ -1,0 +1,426 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biblioteca ITSJR | Buscador</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f3f6fb;
+            color: #26354a;
+        }
+
+        header {
+            background: #173b68;
+            color: white;
+            padding: 25px 8%;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        header p {
+            margin-bottom: 0;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 45px auto;
+            padding: 20px;
+        }
+
+        .buscador {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px #00000012;
+        }
+
+        .buscador h2 {
+            margin-top: 0;
+        }
+
+        .modo-busqueda {
+            margin: 22px 0;
+        }
+
+        .modo-busqueda label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        select {
+            width: 100%;
+            padding: 13px;
+            border: 1px solid #ccd5e0;
+            border-radius: 7px;
+            font-size: 15px;
+            background: white;
+            color: #26354a;
+        }
+
+        .descripcion-modo {
+            color: #52657c;
+            font-size: 14px;
+            margin-top: 9px;
+        }
+
+        .formulario {
+            display: flex;
+            gap: 10px;
+        }
+
+        input {
+            flex: 1;
+            min-width: 0;
+            padding: 14px;
+            border: 1px solid #ccd5e0;
+            border-radius: 7px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 14px 24px;
+            border: none;
+            border-radius: 7px;
+            background: #2367b1;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #174d88;
+        }
+
+        button:disabled {
+            background: #8299b2;
+            cursor: wait;
+        }
+
+        #mensaje {
+            margin-top: 20px;
+            color: #52657c;
+        }
+
+        #resultados {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .libro {
+            background: white;
+            padding: 20px;
+            border: 1px solid #dce4ee;
+            border-left: 4px solid #2367b1;
+            border-radius: 9px;
+        }
+
+        .libro h3 {
+            margin-top: 0;
+            color: #173b68;
+        }
+
+        .libro p {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+
+        .ubicacion {
+            margin-top: 15px;
+            padding: 12px;
+            background: #edf4fc;
+            border-radius: 7px;
+        }
+
+        .ubicacion h4 {
+            margin: 0 0 8px;
+            color: #173b68;
+        }
+
+        .disponibilidad {
+            font-weight: bold;
+            color: #2367b1;
+        }
+
+        .similitud {
+            display: inline-block;
+            margin: 0 0 12px;
+            padding: 7px 10px;
+            background: #e7f4eb;
+            color: #23683b;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        @media (max-width: 700px) {
+            #resultados {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .formulario {
+                flex-direction: column;
+            }
+
+            main {
+                margin: 20px auto;
+                padding: 12px;
+            }
+
+            .buscador {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>Biblioteca ITSJR</h1>
+    <p>Sistema de búsqueda de recursos bibliográficos</p>
+</header>
+
+<main>
+    <section class="buscador">
+        <h2>Buscar libros</h2>
+
+        <p>
+            Encuentra recursos bibliográficos utilizando
+            palabras clave o consultas en lenguaje natural.
+        </p>
+
+        <div class="modo-busqueda">
+            <label for="modo">Selecciona el tipo de búsqueda:</label>
+
+            <select id="modo">
+                <option value="tradicional">
+                    Búsqueda tradicional
+                </option>
+
+                <option value="semantica">
+                    Búsqueda semántica con IA
+                </option>
+            </select>
+
+            <p id="descripcionModo" class="descripcion-modo">
+                Busca coincidencias por título, autor, tema o editorial.
+            </p>
+        </div>
+
+        <div class="formulario">
+            <input
+                type="text"
+                id="consulta"
+                placeholder="Ej. literatura, programación..."
+            >
+
+            <button id="btnBuscar" onclick="buscarLibros()">
+                Buscar
+            </button>
+        </div>
+
+        <p id="mensaje"></p>
+        <div id="resultados"></div>
+    </section>
+</main>
+
+<script>
+    const modo = document.getElementById("modo");
+    const consulta = document.getElementById("consulta");
+    const mensaje = document.getElementById("mensaje");
+    const resultados = document.getElementById("resultados");
+    const btnBuscar = document.getElementById("btnBuscar");
+    const descripcionModo = document.getElementById("descripcionModo");
+
+    // Actualizar descripción según el tipo de búsqueda
+    modo.addEventListener("change", () => {
+
+        if (modo.value === "semantica") {
+            descripcionModo.textContent =
+                "La IA busca libros relacionados con el significado de tu consulta.";
+
+            consulta.placeholder =
+                "Ej. Libros para aprender sobre inteligencia artificial...";
+        } else {
+            descripcionModo.textContent =
+                "Busca coincidencias por título, autor, tema o editorial.";
+
+            consulta.placeholder =
+                "Ej. literatura, programación...";
+        }
+
+        resultados.innerHTML = "";
+        mensaje.textContent = "";
+    });
+
+
+    async function buscarLibros() {
+
+        const texto = consulta.value.trim();
+
+        resultados.innerHTML = "";
+
+        if (!texto) {
+            mensaje.textContent =
+                "Escribe algo para realizar la búsqueda.";
+            return;
+        }
+
+        btnBuscar.disabled = true;
+        btnBuscar.textContent = "Buscando...";
+
+        mensaje.textContent = "Buscando libros...";
+
+        try {
+
+            // Seleccionar el endpoint según el modo
+            let url;
+
+            if (modo.value === "semantica") {
+                url = `/buscar-semantico?q=${encodeURIComponent(texto)}&limite=10`;
+            } else {
+                url = `/buscar?q=${encodeURIComponent(texto)}`;
+            }
+
+            const respuesta = await fetch(url);
+
+            if (!respuesta.ok) {
+                throw new Error("No se pudo realizar la búsqueda.");
+            }
+
+            const datos = await respuesta.json();
+
+            mensaje.textContent =
+                `Se encontraron ${datos.total} libros.`;
+
+            if (datos.total === 0) {
+                mensaje.textContent =
+                    "No se encontraron libros relacionados con tu consulta.";
+                return;
+            }
+
+            datos.libros.forEach(libro => {
+
+                const tarjeta = document.createElement("article");
+                tarjeta.className = "libro";
+
+                const titulo = document.createElement("h3");
+                titulo.textContent = libro.titulo || "Sin título";
+
+                const autor = document.createElement("p");
+                autor.textContent =
+                    `Autor: ${libro.autor || "No disponible"}`;
+
+                const tema = document.createElement("p");
+                tema.textContent =
+                    `Tema: ${libro.tema || "No disponible"} | Subtema: ${libro.subtema || "No disponible"}`;
+
+                const editorial = document.createElement("p");
+                editorial.textContent =
+                    `Editorial: ${libro.editorial || "No disponible"}`;
+
+                const anio = document.createElement("p");
+                anio.textContent =
+                    `Año de publicación: ${libro.anio ?? "No disponible"}`;
+
+                const disponibles = document.createElement("p");
+                disponibles.className = "disponibilidad";
+                disponibles.textContent =
+                    `Ejemplares disponibles: ${libro.disponibles ?? 0}`;
+
+                tarjeta.append(
+                    titulo,
+                    autor,
+                    tema,
+                    editorial,
+                    anio,
+                    disponibles
+                );
+
+                // Mostrar similitud únicamente en búsqueda semántica
+                if (
+                    modo.value === "semantica" &&
+                    typeof libro.similitud === "number"
+                ) {
+                    const similitud = document.createElement("span");
+                    similitud.className = "similitud";
+
+                    similitud.textContent =
+                        `Similitud: ${(libro.similitud * 100).toFixed(2)}%`;
+
+                    tarjeta.appendChild(similitud);
+                }
+
+                const ubicacion = document.createElement("div");
+                ubicacion.className = "ubicacion";
+
+                const subtitulo = document.createElement("h4");
+                subtitulo.textContent = "Ubicación del libro";
+
+                const pasillo = document.createElement("p");
+                pasillo.textContent =
+                    `Pasillo: ${libro.pasillo ?? "No disponible"}`;
+
+                const estanteria = document.createElement("p");
+                estanteria.textContent =
+                    `Estantería: ${libro.estanteria ?? "No disponible"}`;
+
+                const estante = document.createElement("p");
+                estante.textContent =
+                    `Estante: ${libro.estante ?? "No disponible"}`;
+
+                ubicacion.append(
+                    subtitulo,
+                    pasillo,
+                    estanteria,
+                    estante
+                );
+
+                tarjeta.appendChild(ubicacion);
+
+                resultados.appendChild(tarjeta);
+            });
+
+        } catch (error) {
+
+            mensaje.textContent =
+                "Ocurrió un error al buscar los libros.";
+
+            console.error(error);
+
+        } finally {
+
+            btnBuscar.disabled = false;
+            btnBuscar.textContent = "Buscar";
+
+        }
+    }
+
+
+    // Permitir buscar al presionar Enter
+    consulta.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            buscarLibros();
+        }
+    });
+
+</script>
+
+</body>
+</html>
